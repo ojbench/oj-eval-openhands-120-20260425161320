@@ -149,27 +149,37 @@ public:
     std::vector<Task*> tick() {
         std::vector<Task*> result;
         
-        // Check if we need to cascade before advancing
-        bool cascade_minute = (second_wheel.current_slot == 59);
-        bool cascade_hour = cascade_minute && (minute_wheel.current_slot == 59);
+        // Check if we need to cascade AFTER advancing
+        bool will_cascade_minute = (second_wheel.current_slot == 59);
+        bool will_cascade_hour = will_cascade_minute && (minute_wheel.current_slot == 59);
         
-        // Cascade from higher wheels if needed
-        if (cascade_hour) {
+        // Advance second wheel first
+        std::vector<TaskNode*> ready = second_wheel.advance();
+        
+        // Now cascade from higher wheels if needed
+        if (will_cascade_hour) {
             std::vector<TaskNode*> from_hour = hour_wheel.advance();
             for (TaskNode* node : from_hour) {
                 node->time %= hour_wheel.interval;
-                addTaskToWheels(node, node->time);
+                if (node->time == 0) {
+                    // Execute immediately
+                    ready.push_back(node);
+                } else {
+                    addTaskToWheels(node, node->time);
+                }
             }
-        } else if (cascade_minute) {
+        } else if (will_cascade_minute) {
             std::vector<TaskNode*> from_minute = minute_wheel.advance();
             for (TaskNode* node : from_minute) {
                 node->time %= minute_wheel.interval;
-                addTaskToWheels(node, node->time);
+                if (node->time == 0) {
+                    // Execute immediately
+                    ready.push_back(node);
+                } else {
+                    addTaskToWheels(node, node->time);
+                }
             }
         }
-        
-        // Advance second wheel
-        std::vector<TaskNode*> ready = second_wheel.advance();
         
         // Execute ready tasks
         for (TaskNode* node : ready) {
