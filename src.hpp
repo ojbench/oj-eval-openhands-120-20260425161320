@@ -206,19 +206,17 @@ private:
         // Try to add to second wheel
         if (time / second_wheel.interval <= second_wheel.size) {
             size_t slot_index = (second_wheel.current_slot + time / second_wheel.interval) % second_wheel.size;
-            node->time = time / second_wheel.interval / second_wheel.size;
+            node->time = time;
             second_wheel.addTaskNode(node, slot_index);
         }
         // Try to add to minute wheel
         else if (time / minute_wheel.interval <= minute_wheel.size) {
-            time = time + second_wheel.current_slot * second_wheel.interval;
             size_t slot_index = (minute_wheel.current_slot + time / minute_wheel.interval) % minute_wheel.size;
             node->time = time;
             minute_wheel.addTaskNode(node, slot_index);
         }
         // Try to add to hour wheel
         else if (time / hour_wheel.interval <= hour_wheel.size) {
-            time = time + second_wheel.current_slot * second_wheel.interval + minute_wheel.current_slot * minute_wheel.interval;
             size_t slot_index = (hour_wheel.current_slot + time / hour_wheel.interval) % hour_wheel.size;
             node->time = time;
             hour_wheel.addTaskNode(node, slot_index);
