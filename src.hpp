@@ -47,6 +47,23 @@ public:
         }
     }
     
+    void addTaskNodeWithTime(TaskNode* node, size_t slot_offset, int time_value) {
+        size_t slot_index = (current_slot + slot_offset) % size;
+        node->time = time_value;
+        
+        if (slots[slot_index] == nullptr) {
+            slots[slot_index] = node;
+            node->next = node;
+            node->prev = node;
+        } else {
+            TaskNode* head = slots[slot_index];
+            node->next = head;
+            node->prev = head->prev;
+            head->prev->next = node;
+            head->prev = node;
+        }
+    }
+    
     void removeTaskNode(TaskNode* node) {
         if (node->next == node) {
             // Only node in the list
@@ -183,7 +200,7 @@ public:
         if (cascade_hour) {
             std::vector<TaskNode*> from_hour = hour_wheel.cascade();
             for (TaskNode* node : from_hour) {
-                size_t remaining_time = node->time * 3600;
+                size_t remaining_time = node->time;  // in seconds
                 addTaskToWheel(node, remaining_time);
             }
         }
@@ -191,7 +208,7 @@ public:
         if (cascade_minute) {
             std::vector<TaskNode*> from_minute = minute_wheel.cascade();
             for (TaskNode* node : from_minute) {
-                size_t remaining_time = node->time * 60;
+                size_t remaining_time = node->time;  // in seconds
                 addTaskToWheel(node, remaining_time);
             }
         }
@@ -233,9 +250,13 @@ private:
         if (delay < 60) {
             second_wheel.addTaskNode(node, delay);
         } else if (delay < 3600) {
-            minute_wheel.addTaskNode(node, delay / 60);
+            size_t minutes = delay / 60;
+            size_t seconds = delay % 60;
+            minute_wheel.addTaskNodeWithTime(node, minutes, seconds);
         } else {
-            hour_wheel.addTaskNode(node, delay / 3600);
+            size_t hours = delay / 3600;
+            size_t remaining = delay % 3600;
+            hour_wheel.addTaskNodeWithTime(node, hours, remaining);
         }
     }
     
