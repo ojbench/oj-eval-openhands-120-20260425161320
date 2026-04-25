@@ -30,27 +30,7 @@ public:
         delete[] slots;
     }
     
-    void addTaskNode(TaskNode* node, size_t delay) {
-        size_t slot_index = (current_slot + delay) % size;
-        node->time = delay / size;
-        
-        if (slots[slot_index] == nullptr) {
-            slots[slot_index] = node;
-            node->next = node;
-            node->prev = node;
-        } else {
-            TaskNode* head = slots[slot_index];
-            node->next = head;
-            node->prev = head->prev;
-            head->prev->next = node;
-            head->prev = node;
-        }
-    }
-    
-    void addTaskNodeWithTime(TaskNode* node, size_t slot_offset, int time_value) {
-        size_t slot_index = (current_slot + slot_offset) % size;
-        node->time = time_value;
-        
+    void addTaskNode(TaskNode* node, size_t slot_index) {
         if (slots[slot_index] == nullptr) {
             slots[slot_index] = node;
             node->next = node;
@@ -97,42 +77,19 @@ public:
             TaskNode* start = node;
             do {
                 TaskNode* next = node->next;
-                if (node->time == 0) {
-                    ready_tasks.push_back(node);
-                }
+                ready_tasks.push_back(node);
                 node = next;
             } while (node != start);
         }
         
-        // Remove ready tasks from current slot
+        // Clear the slot
+        slots[current_slot] = nullptr;
         for (TaskNode* task_node : ready_tasks) {
-            removeTaskNode(task_node);
+            task_node->next = nullptr;
+            task_node->prev = nullptr;
         }
         
         return ready_tasks;
-    }
-    
-    std::vector<TaskNode*> cascade() {
-        current_slot = (current_slot + 1) % size;
-        
-        std::vector<TaskNode*> cascaded_tasks;
-        
-        TaskNode* node = slots[current_slot];
-        if (node) {
-            TaskNode* start = node;
-            do {
-                TaskNode* next = node->next;
-                cascaded_tasks.push_back(node);
-                node = next;
-            } while (node != start);
-        }
-        
-        // Remove cascaded tasks from current slot
-        for (TaskNode* task_node : cascaded_tasks) {
-            removeTaskNode(task_node);
-        }
-        
-        return cascaded_tasks;
     }
     
 private:
@@ -158,10 +115,10 @@ public:
 
     TaskNode* addTask(Task* task) {
         size_t delay = task->getFirstInterval();
-        TaskNode* node = new TaskNode(task, 0);
+        TaskNode* node = new TaskNode(task, delay);
         all_nodes.push_back(node);
         
-        addTaskToWheel(node, delay);
+        addTaskToWheels(node, delay);
         return node;
     }
 
@@ -198,18 +155,16 @@ public:
         
         // Cascade from higher wheels if needed
         if (cascade_hour) {
-            std::vector<TaskNode*> from_hour = hour_wheel.cascade();
+            std::vector<TaskNode*> from_hour = hour_wheel.advance();
             for (TaskNode* node : from_hour) {
-                size_t remaining_time = node->time;  // in seconds
-                addTaskToWheel(node, remaining_time);
+                node->time %= hour_wheel.interval;
+                addTaskToWheels(node, node->time);
             }
-        }
-        
-        if (cascade_minute) {
-            std::vector<TaskNode*> from_minute = minute_wheel.cascade();
+        } else if (cascade_minute) {
+            std::vector<TaskNode*> from_minute = minute_wheel.advance();
             for (TaskNode* node : from_minute) {
-                size_t remaining_time = node->time;  // in seconds
-                addTaskToWheel(node, remaining_time);
+                node->time %= minute_wheel.interval;
+                addTaskToWheels(node, node->time);
             }
         }
         
@@ -223,7 +178,8 @@ public:
             // Reschedule periodic tasks
             size_t period = node->task->getPeriod();
             if (period > 0) {
-                addTaskToWheel(node, period);
+                node->time = period;
+                addTaskToWheels(node, period);
             } else {
                 // Non-periodic task, remove it
                 for (size_t i = 0; i < all_nodes.size(); ++i) {
@@ -246,17 +202,37 @@ private:
     TimingWheel hour_wheel;
     std::vector<TaskNode*> all_nodes;
     
-    void addTaskToWheel(TaskNode* node, size_t delay) {
-        if (delay < 60) {
-            second_wheel.addTaskNode(node, delay);
-        } else if (delay < 3600) {
-            size_t minutes = delay / 60;
-            size_t seconds = delay % 60;
-            minute_wheel.addTaskNodeWithTime(node, minutes, seconds);
-        } else {
-            size_t hours = delay / 3600;
-            size_t remaining = delay % 3600;
-            hour_wheel.addTaskNodeWithTime(node, hours, remaining);
+    void addTaskToWheels(TaskNode* node, size_t time) {
+        // Try to add to second wheel
+        if (time / second_wheel.interval <= second_wheel.size) {
+            size_t slot_index = (second_wheel.current_slot + time / second_wheel.interval) % second_wheel.size;
+            node->time = time / second_wheel.interval / second_wheel.size;
+            second_wheel.addTaskNode(node, slot_index);
+        }
+        // Try to add to minute wheel
+        else if (time / minute_wheel.interval <= minute_wheel.size) {
+            time = time + second_wheel.current_slot * second_wheel.interval;
+            size_t slot_index = (minute_wheel.current_slot + time / minute_wheel.interval) % minute_wheel.size;
+            node->time = time;
+            minute_wheel.addTaskNode(node, slot_index);
+        }
+        // Try to add to hour wheel
+        else if (time / hour_wheel.interval <= hour_wheel.size) {
+            time = time + second_wheel.current_slot * second_wheel.interval + minute_wheel.current_slot * minute_wheel.interval;
+            size_t slot_index = (hour_wheel.current_slot + time / hour_wheel.interval) % hour_wheel.size;
+            node->time = time;
+            hour_wheel.addTaskNode(node, slot_index);
+        }
+        // Task exceeds all wheels, delete it
+        else {
+            for (size_t i = 0; i < all_nodes.size(); ++i) {
+                if (all_nodes[i] == node) {
+                    all_nodes[i] = all_nodes[all_nodes.size() - 1];
+                    all_nodes.pop_back();
+                    break;
+                }
+            }
+            delete node;
         }
     }
     
